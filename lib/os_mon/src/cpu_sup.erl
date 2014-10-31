@@ -231,67 +231,14 @@ get_uint32_measurement(Request, #internal{os_type = {unix, linux}}) ->
 	?ping -> 4711;
 	?nprocs -> PTotal
     end;
-get_uint32_measurement(Request, #internal{os_type = {unix, freebsd}}) ->
-    D = os:cmd("/sbin/sysctl -n vm.loadavg") -- "\n",
-    {ok,[Load1,Load5,Load15],_} = io_lib:fread("{ ~f ~f ~f }", D),
-    %% We could count the lines from the ps command as well
-    case Request of
-	?avg1  -> sunify(Load1);
-	?avg5  -> sunify(Load5);
-	?avg15 -> sunify(Load15);
-	?ping -> 4711;
-	?nprocs ->
-	    Ps = os:cmd("/bin/ps -ax | /usr/bin/wc -l"),
-	    {ok, [N], _} = io_lib:fread("~d", Ps),
-	    N-1
-    end;
-get_uint32_measurement(Request, #internal{os_type = {unix, dragonfly}}) ->
-    D = os:cmd("/sbin/sysctl -n vm.loadavg") -- "\n",
-    {ok,[Load1,Load5,Load15],_} = io_lib:fread("{ ~f ~f ~f }", D),
-    %% We could count the lines from the ps command as well
-    case Request of
-	?avg1  -> sunify(Load1);
-	?avg5  -> sunify(Load5);
-	?avg15 -> sunify(Load15);
-	?ping -> 4711;
-	?nprocs ->
-	    Ps = os:cmd("/bin/ps -ax | /usr/bin/wc -l"),
-	    {ok, [N], _} = io_lib:fread("~d", Ps),
-	    N-1
-    end;
-get_uint32_measurement(Request, #internal{os_type = {unix, openbsd}}) ->
-    D = os:cmd("/sbin/sysctl -n vm.loadavg") -- "\n",
-    {ok, [L1, L5, L15], _} = io_lib:fread("~f ~f ~f", D),
-    case Request of
-	?avg1  -> sunify(L1);
-	?avg5  -> sunify(L5);
-	?avg15 -> sunify(L15);
-	?ping -> 4711;
-	?nprocs ->
-	    Ps = os:cmd("/bin/ps -ax | /usr/bin/wc -l"),
-	    {ok, [N], _} = io_lib:fread("~d", Ps),
-	    N-1
-    end;
-get_uint32_measurement(Request, #internal{os_type = {unix, darwin}}) ->
-    %% Get the load average using uptime, overriding Locale setting.
-    D = os:cmd("LANG=C LC_ALL=C uptime") -- "\n",
-    %% Here is a sample uptime string from Mac OS 10.3.8 (C Locale):
-    %%    "11:17  up 12 days, 20:39, 2 users, load averages: 1.07 0.95 0.66"
-    %% The safest way to extract the load averages seems to be grab everything
-    %% after the last colon and then do an fread on that.
-    Avg = lists:reverse(hd(string:tokens(lists:reverse(D), ":"))),
-    {ok,[L1,L5,L15],_} = io_lib:fread("~f ~f ~f", Avg),
-
-    case Request of
-	?avg1  -> sunify(L1);
-	?avg5  -> sunify(L5);
-	?avg15 -> sunify(L15);
-	?ping -> 4711;
-	?nprocs ->
-	    Ps = os:cmd("/bin/ps -ax | /usr/bin/wc -l"),
-	    {ok, [N], _} = io_lib:fread("~d", Ps),
-	    N-1
-    end;
+get_uint32_measurement(Request, #internal{port = P, os_type = {unix, freebsd}}) ->
+    port_server_call(P, Request);
+get_uint32_measurement(Request, #internal{port = P, os_type = {unix, dragonfly}}) ->
+    port_server_call(P, Request);
+get_uint32_measurement(Request, #internal{port = P, os_type = {unix, openbsd}}) ->
+    port_server_call(P, Request);
+get_uint32_measurement(Request, #internal{port = P, os_type = {unix, darwin}}) ->
+    port_server_call(P, Request);
 get_uint32_measurement(Request, #internal{os_type = {unix, Sys}}) when Sys == irix64;
 								 Sys == irix ->
     %% Get the load average using uptime.
@@ -541,13 +488,15 @@ measurement_server_init() ->
     process_flag(trap_exit, true),
     OS = os:type(),
     Server = case OS of
-	{unix, Flavor} when Flavor==sunos;
-			    Flavor==linux ->
-	    port_server_start();
-	{unix, Flavor} when Flavor==darwin;
+	{unix, Flavor} when
+			    Flavor==sunos;
+			    Flavor==linux;
+			    Flavor==darwin;
 			    Flavor==freebsd;
 			    Flavor==dragonfly;
-			    Flavor==openbsd;
+			    Flavor==openbsd ->
+	    port_server_start();
+	{unix, Flavor} when
 			    Flavor==irix64;
 			    Flavor==irix ->
 	    not_used;
